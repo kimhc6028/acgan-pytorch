@@ -10,3 +10,13 @@ Pytorch implementation of [Conditional Image Synthesis with Auxiliary Classifier
 
 	$ ./run.sh
 
+or
+
+	$ python main.py --dataset mnist --dataroot data --outf output --cuda                                                                           
+
+will start training gpu with GPU. Datasets will be downloaded to /data, and generated images are stored in output directory.
+
+
+![Alt text](./output/fake_samples_epoch_015.png?raw=true "Title")
+
+Generated MNIST samples after 15 epoches.
