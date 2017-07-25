@@ -35,7 +35,7 @@ parser.add_argument('--niter', type=int, default=25, help='number of epochs to t
 parser.add_argument('--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
-parser.add_argument('--log_path', default='dammi_un_nome', help="name of the logs output")
+parser.add_argument('--log_name', default='name_me_', help="name of the logs output")
 parser.add_argument('--netG', default='', help="path to netG (to continue training)")
 parser.add_argument('--netD', default='', help="path to netD (to continue training)")
 parser.add_argument('--netC', default='', help="path to netC (to continue training)")
@@ -187,8 +187,8 @@ def test(predict, labels):
 
 
 
-logfile_url= '%s-eval-metric-log-accuracy.txt' % ('/output/'+opt.log_name)
-print 'saving logfiles  at %s' % (logfile_url)
+logfile_url= '%s-eval-metric-log-accuracy.txt' % ('/home/ubuntu/acgan-pytorch/output/'+opt.log_name)
+print('saving logfiles  at %s' % (logfile_url))
 logfile = open(logfile_url, 'a')
     #logfile.write("%s\n" % item)
 
@@ -303,21 +303,25 @@ for epoch in range(opt.niter):
         #summary statistics and printing 
 
         errD = d_errD_real + d_errD_fake
-
-        log_output='[%d/%d][%d/%d] Loss_D: %.4f Loss_G_d: %.4f Loss_G_c: %.4f  Loss_C: %.4f Loss_S_fake: %.4f Loss_S_real: %.4f  Accuracy: %.4f / %.4f = %.4f'
-              % (epoch, opt.niter, i, len(dataloader),
+        
+        if i % 50 == 0:
+            
+            
+            
+            log_output='[%d/%d][%d/%d] Loss_D: %.4f Loss_G_d: %.4f Loss_G_c: %.4f  Loss_C: %.4f Loss_S_fake: %.4f Loss_S_real: %.4f  Accuracy: %.4f / %.4f = %.4f' % (epoch, opt.niter, i, len(dataloader),
                  errD.data[0], d_errG.data[0],c_errG.data[0],c_errC_real.data[0],s_errS_fake.data[0],s_errS_real.data[0],
                  correct, length, 100.* correct / length)
-        logfile.write(log_output)
-
-        print(log_output)
+            
+            logfile.write(log_output+"\n")
+            print(log_output)
+        
         if i % 100 == 0:
-            vutils.save_image(img,
-                    '%s/%s_real_samples.png' % (opt.outf,opt.log_name)
+
+            vutils.save_image(img,'%s/%s_real_samples.png' % (opt.outf,opt.log_name))
             #fake = netG(fixed_cat)
             fake = netG(fixed_noise)
             vutils.save_image(fake.data,
-                    '%s/%s_fake_samples_epoch_%03d.png' % (opt.outf,,opt.log_name, epoch))
+                    '%s/%s_fake_samples_epoch_%03d.png' % (opt.outf,opt.log_name, epoch))
 
     # do checkpointing
     torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (opt.outf, epoch))
