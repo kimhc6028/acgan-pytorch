@@ -37,6 +37,8 @@ parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. de
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
 parser.add_argument('--netG', default='', help="path to netG (to continue training)")
 parser.add_argument('--netD', default='', help="path to netD (to continue training)")
+parser.add_argument('--netC', default='', help="path to netC (to continue training)")
+parser.add_argument('--netS', default='', help="path to netS (to continue training)")
 parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
 parser.add_argument('--manualSeed', type=int, help='manual seed')
 
@@ -53,6 +55,7 @@ if opt.manualSeed is None:
 print("Random Seed: ", opt.manualSeed)
 random.seed(opt.manualSeed)
 torch.manual_seed(opt.manualSeed)
+
 if opt.cuda:
     torch.cuda.manual_seed_all(opt.manualSeed)
 
@@ -127,8 +130,8 @@ print(netS)
 #Definition of the loss functions
 
 d_criterion = nn.BCELoss()  # Cross-entropy loss for fake/real
-c_criterion = nn.NLLLoss() # Cross-Entropy for labels for classifier
-s_criterion = nn.NLLLoss() # Cross-Entropy for labels for sudent
+c_criterion = nn.CrossEntropyLoss() # Cross-Entropy for labels for classifier
+s_criterion = nn.CrossEntropyLoss() # Cross-Entropy for labels for sudent
 
 
 input = torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize)
@@ -206,7 +209,7 @@ for epoch in range(opt.niter):
         s_output = netS(input)
 
         # compute the losses on real data for Discriminator/Classifier/Student
-        d_errD_real = d_criterion(s_output, s_label)
+        d_errD_real = d_criterion(d_output, d_label)
         c_errC_real = c_criterion(c_output, c_label)
         s_errS_real = s_criterion(s_output, c_label)
 

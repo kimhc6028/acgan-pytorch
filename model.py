@@ -99,14 +99,14 @@ class netD(nn.Module):
         x = self.conv5(x)
         x = x.view(-1, self.ndf * 1)
         d = self.disc_linear(x)
-        d = self.sigmoid(s)
+        d = self.sigmoid(d)
         return d
 
 class netC(nn.Module):
 
     def __init__(self, ndf, nc, nb_label):
 
-        super(netD, self).__init__()
+        super(netC, self).__init__()
         self.LeakyReLU = nn.LeakyReLU(0.2, inplace=True)
         self.conv1 = nn.Conv2d(nc, ndf, 4, 2, 1, bias=False)
         self.conv2 = nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False)
