@@ -98,8 +98,51 @@ class netD(nn.Module):
 
         x = self.conv5(x)
         x = x.view(-1, self.ndf * 1)
+        d = self.disc_linear(x)
+        d = self.sigmoid(s)
+        return d
+
+class netC(nn.Module):
+
+    def __init__(self, ndf, nc, nb_label):
+
+        super(netD, self).__init__()
+        self.LeakyReLU = nn.LeakyReLU(0.2, inplace=True)
+        self.conv1 = nn.Conv2d(nc, ndf, 4, 2, 1, bias=False)
+        self.conv2 = nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False)
+        self.BatchNorm2 = nn.BatchNorm2d(ndf * 2)
+        self.conv3 = nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False)
+        self.BatchNorm3 = nn.BatchNorm2d(ndf * 4)
+        self.conv4 = nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False)
+        self.BatchNorm4 = nn.BatchNorm2d(ndf * 8)
+        self.conv5 = nn.Conv2d(ndf * 8, ndf * 1, 4, 1, 0, bias=False)
+        self.disc_linear = nn.Linear(ndf * 1, 1)
+        self.aux_linear = nn.Linear(ndf * 1, nb_label)
+        self.softmax = nn.Softmax()
+        self.sigmoid = nn.Sigmoid()
+        self.ndf = ndf
+        self.apply(weights_init)
+
+    def forward(self, input):
+
+        x = self.conv1(input)
+        x = self.LeakyReLU(x)
+
+        x = self.conv2(x)
+        x = self.BatchNorm2(x)
+        x = self.LeakyReLU(x)
+
+        x = self.conv3(x)
+        x = self.BatchNorm3(x)
+        x = self.LeakyReLU(x)
+
+        x = self.conv4(x)
+        x = self.BatchNorm4(x)
+        x = self.LeakyReLU(x)
+
+        x = self.conv5(x)
+        x = x.view(-1, self.ndf * 1)
         c = self.aux_linear(x)
         c = self.softmax(c)
-        s = self.disc_linear(x)
-        s = self.sigmoid(s)
-        return s,c
+       
+        return c        

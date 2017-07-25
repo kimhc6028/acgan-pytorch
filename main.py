@@ -95,25 +95,46 @@ else:
     nc = 3
     nb_label = 10
 
+
+#definition of generator
 netG = model.netG(nz, ngf, nc)
 
 if opt.netG != '':
     netG.load_state_dict(torch.load(opt.netG))
 print(netG)
 
+#definition of discriminator
 netD = model.netD(ndf, nc, nb_label)
 
 if opt.netD != '':
     netD.load_state_dict(torch.load(opt.netD))
 print(netD)
 
-s_criterion = nn.BCELoss()
-c_criterion = nn.NLLLoss()
+#definition of classifier
+netC = model.netC(ndf, nc, nb_label)
+
+if opt.netC != '':
+    netC.load_state_dict(torch.load(opt.netC))
+print(netC)
+
+#definition of student
+netS = model.netC(ndf, nc, nb_label)
+
+if opt.netS != '':
+    netS.load_state_dict(torch.load(opt.netS))
+print(netS)
+
+#Definition of the loss functions
+
+d_criterion = nn.BCELoss()  # Cross-entropy loss for fake/real
+c_criterion = nn.NLLLoss() # Cross-Entropy for labels for classifier
+s_criterion = nn.NLLLoss() # Cross-Entropy for labels for sudent
+
 
 input = torch.FloatTensor(opt.batchSize, 3, opt.imageSize, opt.imageSize)
 noise = torch.FloatTensor(opt.batchSize, nz, 1, 1)
 fixed_noise = torch.FloatTensor(opt.batchSize, nz, 1, 1).normal_(0, 1)
-s_label = torch.FloatTensor(opt.batchSize)
+d_label = torch.FloatTensor(opt.batchSize)
 c_label = torch.LongTensor(opt.batchSize)
 
 real_label = 1
@@ -122,14 +143,17 @@ fake_label = 0
 if opt.cuda:
     netD.cuda()
     netG.cuda()
-    s_criterion.cuda()
+    netC.cuda()
+    netS.cuda()
+    d_criterion.cuda()
     c_criterion.cuda()
-    input, s_label = input.cuda(), s_label.cuda()
+    s_criterion.cuda()
+    input, d_label = input.cuda(), d_label.cuda()
     c_label = c_label.cuda()
     noise, fixed_noise = noise.cuda(), fixed_noise.cuda()
 
 input = Variable(input)
-s_label = Variable(s_label)
+d_label = Variable(d_label)
 c_label = Variable(c_label)
 noise = Variable(noise)
 fixed_noise = Variable(fixed_noise)
@@ -148,6 +172,8 @@ fixed_noise.data.copy_(fixed_noise_)
 # setup optimizer
 optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+optimizerC = optim.Adam(netC.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+optimizerS = optim.Adam(netS.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 
 def test(predict, labels):
     correct = 0
@@ -157,26 +183,46 @@ def test(predict, labels):
 
 for epoch in range(opt.niter):
     for i, data in enumerate(dataloader, 0):
+
+
         ###########################
         # (1) Update D network
         ###########################
         # train with real
         netD.zero_grad()
+        netC.zero_grad()
+        netS.zero_grad()
+        #feed input and labels from iterator
         img, label = data
         batch_size = img.size(0)
         input.data.resize_(img.size()).copy_(img)
-        s_label.data.resize_(batch_size).fill_(real_label)
+        d_label.data.resize_(batch_size).fill_(real_label)
         c_label.data.resize_(batch_size).copy_(label)
-        s_output, c_output = netD(input)
-        s_errD_real = s_criterion(s_output, s_label)
-        c_errD_real = c_criterion(c_output, c_label)
-        errD_real = s_errD_real + c_errD_real
-        errD_real.backward()
-        D_x = s_output.data.mean()
+
+        #forward pass on real data Discriminator/Classifier/Student
+
+        d_output = netD(input)
+        c_output = netC(input)
+        s_output = netS(input)
+
+        # compute the losses on real data for Discriminator/Classifier/Student
+        d_errD_real = d_criterion(s_output, s_label)
+        c_errC_real = c_criterion(c_output, c_label)
+        s_errS_real = s_criterion(s_output, c_label)
+
+        # backprop the Discriminator/Classifier/
+        err_real = d_errD_real + c_errC_real
+        err_real.backward()
+
+        D_x = d_output.data.mean()
         
+        #test labels and output length is the same
         correct, length = test(c_output, c_label)
 
         # train with fake
+
+        #preapre batch on noise Z and uniformli sampled labels Y 
+        # we might want to consider to use the same Y coming from previous dataset and soft-label from classifier for student
         noise.data.resize_(batch_size, nz, 1, 1)
         noise.data.normal_(0, 1)
 
@@ -188,39 +234,68 @@ for epoch in range(opt.niter):
         
         noise_ = (torch.from_numpy(noise_))
         noise_ = noise_.resize_(batch_size, nz, 1, 1)
+         
+        # feed noise and labels in the graph
         noise.data.copy_(noise_)
-
         c_label.data.resize_(batch_size).copy_(torch.from_numpy(label))
 
+        #forward pass generator
         fake = netG(noise)
-        s_label.data.fill_(fake_label)
-        s_output,c_output = netD(fake.detach())
-        s_errD_fake = s_criterion(s_output, s_label)
-        c_errD_fake = c_criterion(c_output, c_label)
-        errD_fake = s_errD_fake + c_errD_fake
+        d_label.data.fill_(fake_label)
 
-        errD_fake.backward()
-        D_G_z1 = s_output.data.mean()
-        errD = s_errD_real + s_errD_fake
+        #forward pass on real data Discriminator/Classifier/Student blocks gradients for generator
+
+        d_output = netD(fake.detach())
+        #c_output = netC(fake.detach()) #not using this now but might want to do knowledge distillation
+        s_output = netS(fake.detach())
+
+
+        # compute the losses on real data for Discriminator/Classifier/Student
+        d_errD_fake = d_criterion(d_output, d_label)
+        #c_err_fake = c_criterion(c_output, c_label)
+        s_errS_fake = s_criterion(s_output, c_label)
+
+
+        #sum all the losses --> check that is best thing to do
+        err_fake = d_errD_fake + s_errS_fake 
+
+        err_fake.backward()
+        #D_G_z1 = d_output.data.mean()
+        
+        # update Discriminator/Classifier/Student 
         optimizerD.step()
+        optimizerC.step()
+        optimizerS.step()
 
         ###########################
         # (2) Update G network
         ###########################
         netG.zero_grad()
-        s_label.data.fill_(real_label)  # fake labels are real for generator cost
-        s_output,c_output = netD(fake)
-        s_errG = s_criterion(s_output, s_label)
+        d_label.data.fill_(real_label)  # fake labels are real for generator cost
+
+        # forward pass through Discriminator/Classifier/
+        d_output = netD(fake)
+        c_output = netC(fake)
+
+        # loss function for generator
+        d_errG = d_criterion(d_output, d_label)
         c_errG = c_criterion(c_output, c_label)
-        
-        errG = s_errG + c_errG
+        errG = d_errG + c_errG
+
+        #backward and update
         errG.backward()
-        D_G_z2 = s_output.data.mean()
+        #D_G_z2 = d_output.data.mean()
         optimizerG.step()
 
-        print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f, Accuracy: %.4f / %.4f = %.4f'
+        #summary statistics and printing 
+
+        errD = d_errD_real + d_errD_fake
+
+
+
+        print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G_d: %.4f Loss_G_c: %.4f  Loss_C: %.4f Loss_S_fake: %.4f Loss_S_real: %.4f  Accuracy: %.4f / %.4f = %.4f'
               % (epoch, opt.niter, i, len(dataloader),
-                 errD.data[0], errG.data[0], D_x, D_G_z1, D_G_z2,
+                 errD.data[0], d_errG.data[0],c_errG.data[0],c_errC_real.data[0],s_errS_fake.data[0],s_errS_real.data[0],
                  correct, length, 100.* correct / length))
         if i % 100 == 0:
             vutils.save_image(img,
@@ -233,3 +308,5 @@ for epoch in range(opt.niter):
     # do checkpointing
     torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (opt.outf, epoch))
     torch.save(netD.state_dict(), '%s/netD_epoch_%d.pth' % (opt.outf, epoch))
+    torch.save(netC.state_dict(), '%s/netC_epoch_%d.pth' % (opt.outf, epoch))
+    torch.save(netS.state_dict(), '%s/netS_epoch_%d.pth' % (opt.outf, epoch))
