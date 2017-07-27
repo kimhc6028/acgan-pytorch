@@ -1,5 +1,16 @@
 import torch.nn as nn
 
+class View(nn.Module):
+    def __init__(self,o):
+        super(View, self).__init__()
+        self.o = o
+    def forward(self,x):
+        return x.view(-1, self.o)
+def num_parameters(model):
+    n = 0
+    for w in model.parameters():
+        n += w.numel()
+    return n
 
 # custom weights initialization called on netG and netD
 def weights_init(m):
@@ -73,9 +84,9 @@ class netD(nn.Module):
         self.BatchNorm4 = nn.BatchNorm2d(ndf * 8)
         self.conv5 = nn.Conv2d(ndf * 8, ndf * 1, 4, 1, 0, bias=False)
         self.disc_linear = nn.Linear(ndf * 1, 1)
-        self.aux_linear = nn.Linear(ndf * 1, nb_label)
-        self.softmax = nn.Softmax()
-        self.sigmoid = nn.Sigmoid()
+        #self.aux_linear = nn.Linear(ndf * 1, nb_label)
+        #self.softmax = nn.Softmax()
+        #self.sigmoid = nn.Sigmoid()
         self.ndf = ndf
         self.apply(weights_init)
 
@@ -99,7 +110,7 @@ class netD(nn.Module):
         x = self.conv5(x)
         x = x.view(-1, self.ndf * 1)
         d = self.disc_linear(x)
-        d = self.sigmoid(d)
+        #d = self.sigmoid(d)
         return d
 
 class netC(nn.Module):
@@ -145,4 +156,47 @@ class netC(nn.Module):
         c = self.aux_linear(x)
         c = self.softmax(c)
        
-        return c        
+        return c 
+    
+class allcnn(nn.Module):
+    def __init__(self, opt = {'d':0.5}, c1=96, c2= 192):
+        super(allcnn, self).__init__()
+        self.name = 'allcnn'
+        opt['d'] = 0.5
+
+        def convbn(ci,co,ksz,s=1,pz=0):
+            return nn.Sequential(
+                nn.Conv2d(ci,co,ksz,stride=s,padding=pz),
+                nn.BatchNorm2d(co),
+                nn.ReLU(True))
+        self.m = nn.Sequential(
+            nn.Dropout(0.2),
+            convbn(3,c1,3,1,1),
+            convbn(c1,c1,3,1,1),
+            convbn(c1,c1,3,2,1),
+            nn.Dropout(opt['d']),
+            convbn(c1,c2,3,1,1),
+            convbn(c2,c2,3,1,1),
+            convbn(c2,c2,3,2,1),
+            nn.Dropout(opt['d']),
+            convbn(c2,c2,3,1,1),
+            convbn(c2,c2,3,1,1),
+            convbn(c2,10,1,1),
+            nn.AvgPool2d(16),
+            View(10),nn.Softmax())
+
+        s = '[%s] Num parameters: %d'%(self.name, num_parameters(self.m))
+        print(s)
+
+    def forward(self, x):
+        return self.m(x)  
+
+    
+#         elseif opt.model == 'cifarconv' then
+#             regimes = {
+#                 {1,60, 0.1},
+#                 {60,120, 0.1*0.2^1},
+#                 {120,180, 0.1*0.2^2},
+#                 {180,250, 0.1*0.2^3}}
+#             opt.max_epochs = 200
+

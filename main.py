@@ -7,8 +7,10 @@ import argparse
 import os
 import random
 import numpy as np
+import time
 
 import torch
+torch.backends.cudnn.enabled = False
 import torch.nn as nn
 import torch.nn.parallel
 import torch.nn.functional as F
@@ -19,9 +21,9 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
 from torch.autograd import Variable
-
+import resnet
 import model
-
+#import torchvision.models as resnet
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', required=True, help='cifar10 | mnist')
 parser.add_argument('--dataroot', required=True, help='path to dataset')
@@ -31,7 +33,7 @@ parser.add_argument('--imageSize', type=int, default=64, help='the height / widt
 parser.add_argument('--nz', type=int, default=100, help='size of the latent z vector')
 parser.add_argument('--ngf', type=int, default=64)
 parser.add_argument('--ndf', type=int, default=64)
-parser.add_argument('--niter', type=int, default=25, help='number of epochs to train for')
+parser.add_argument('--niter', type=int, default=100, help='number of epochs to train for')
 parser.add_argument('--lr', type=float, default=0.0002, help='learning rate, default=0.0002')
 parser.add_argument('--beta1', type=float, default=0.5, help='beta1 for adam. default=0.5')
 parser.add_argument('--cuda', action='store_true', help='enables cuda')
@@ -115,19 +117,24 @@ if opt.netD != '':
 print(netD)
 
 #definition of classifier
-netC = model.netC(ndf, nc, nb_label)
+#netC = resnet.ResNet18()
+netC =  model.allcnn()
+#
+#netC = model.netC(ndf, nc, nb_label)
 
 if opt.netC != '':
     netC.load_state_dict(torch.load(opt.netC))
 print(netC)
 
-#definition of student
-netS = model.netC(ndf, nc, nb_label)
+# #definition of student
+# netS = resnet.ResNet18()
+# netS = model.netC(ndf, nc, nb_label)
+netS = model.allcnn()
 
 if opt.netS != '':
     netS.load_state_dict(torch.load(opt.netS))
 print(netS)
-
+#resnet.test()
 #Definition of the loss functions
 
 d_criterion = nn.BCELoss()  # Cross-entropy loss for fake/real
@@ -176,8 +183,8 @@ fixed_noise.data.copy_(fixed_noise_)
 # setup optimizer
 optimizerD = optim.Adam(netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 optimizerG = optim.Adam(netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-optimizerC = optim.Adam(netC.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-optimizerS = optim.Adam(netS.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+optimizerC = optim.SGD(netC.parameters(), lr=0.1, momentum=0.9, weight_decay=5e-4)
+optimizerS = optim.SGD(netS.parameters(), lr=0.1, momentum=0.4, weight_decay=5e-4)
 
 def test(predict, labels):
     correct = 0
@@ -197,6 +204,7 @@ logfile = open(logfile_url, 'a')
 for epoch in range(opt.niter):
     for i, data in enumerate(dataloader, 0):
 
+        start = time.time()
 
         ###########################
         # (1) Update D network
@@ -207,6 +215,7 @@ for epoch in range(opt.niter):
         netS.zero_grad()
         #feed input and labels from iterator
         img, label = data
+        #print(img)
         batch_size = img.size(0)
         input.data.resize_(img.size()).copy_(img)
         d_label.data.resize_(batch_size).fill_(real_label)
@@ -214,20 +223,19 @@ for epoch in range(opt.niter):
 
         #forward pass on real data Discriminator/Classifier/Student
 
-        d_output = netD(input)
+        d_output_real = netD(input)
         c_output = netC(input)
         s_output = netS(input)
 
         # compute the losses on real data for Discriminator/Classifier/Student
-        d_errD_real = d_criterion(d_output, d_label)
+        #d_errD_real = d_criterion(d_output, d_label)
         c_errC_real = c_criterion(c_output, c_label)
         s_errS_real = s_criterion(s_output, c_label)
-
         # backprop the Discriminator/Classifier/
-        err_real = d_errD_real + c_errC_real
-        err_real.backward()
-
-        D_x = d_output.data.mean()
+        #err_real = d_errD_real + c_errC_real
+        c_errC_real.backward()
+    
+        #D_x = d_output.data.mean()
         
         #test labels and output length is the same
         correct, length = test(c_output, c_label)
@@ -258,21 +266,29 @@ for epoch in range(opt.niter):
 
         #forward pass on real data Discriminator/Classifier/Student blocks gradients for generator
 
-        d_output = netD(fake.detach())
+        d_output_fake = netD(fake.detach())
         #c_output = netC(fake.detach()) #not using this now but might want to do knowledge distillation
         s_output = netS(fake.detach())
 
 
-        # compute the losses on real data for Discriminator/Classifier/Student
-        d_errD_fake = d_criterion(d_output, d_label)
+        # compute the losses on fake data for Classifier
+        
+        #d_errD_fake = d_criterion(d_output, d_label)
         #c_err_fake = c_criterion(c_output, c_label)
         s_errS_fake = s_criterion(s_output, c_label)
+        
+        #compute loss on fake and real data for Discriminator
+        d_errD = 0.5 * (torch.mean((d_output_real - 1)**2) + torch.mean(d_output_fake**2))
+
 
 
         #sum all the losses --> check that is best thing to do
-        err_fake = d_errD_fake + s_errS_fake 
-
-        err_fake.backward()
+        #print(d_errD,s_errS_fake,c_errC_real)
+        
+        err_noGen = d_errD + s_errS_fake 
+        #c_errC_real.backward()
+        #print(err_noGen)
+        err_noGen.backward()
         #D_G_z1 = d_output.data.mean()
         
         # update Discriminator/Classifier/Student 
@@ -287,11 +303,12 @@ for epoch in range(opt.niter):
         d_label.data.fill_(real_label)  # fake labels are real for generator cost
 
         # forward pass through Discriminator/Classifier/
-        d_output = netD(fake)
+        d_output_fake = netD(fake)
         c_output = netC(fake)
 
         # loss function for generator
-        d_errG = d_criterion(d_output, d_label)
+        d_errG = 0.5 * torch.mean((d_output_fake - 1)**2)
+        #d_errG = d_criterion(d_output, d_label)
         c_errG = c_criterion(c_output, c_label)
         errG = d_errG + c_errG
 
@@ -302,15 +319,16 @@ for epoch in range(opt.niter):
 
         #summary statistics and printing 
 
-        errD = d_errD_real + d_errD_fake
+        errD = d_errD#d_errD_real + d_errD_fake
         
-        if i % 50 == 0:
+        end = time.time()
+        if i % 1 == 0:
             
             
             
-            log_output='[%d/%d][%d/%d] Loss_D: %.4f Loss_G_d: %.4f Loss_G_c: %.4f  Loss_C: %.4f Loss_S_fake: %.4f Loss_S_real: %.4f  Accuracy: %.4f / %.4f = %.4f' % (epoch, opt.niter, i, len(dataloader),
+            log_output='[%d/%d][%d/%d] Loss_D: %.4f Loss_G_d: %.4f Loss_G_c: %.4f  Loss_C: %.4f Loss_S_fake: %.4f Loss_S_real: %.4f  Accuracy: %.4f / %.4f = %.4f Time:%.4f' % (epoch, opt.niter, i, len(dataloader),
                  errD.data[0], d_errG.data[0],c_errG.data[0],c_errC_real.data[0],s_errS_fake.data[0],s_errS_real.data[0],
-                 correct, length, 100.* correct / length)
+                 correct, length, 100.* correct / length,end-start)
             
             logfile.write(log_output+"\n")
             print(log_output)
