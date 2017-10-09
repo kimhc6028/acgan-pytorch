@@ -39,6 +39,7 @@ parser.add_argument('--netG', default='', help="path to netG (to continue traini
 parser.add_argument('--netD', default='', help="path to netD (to continue training)")
 parser.add_argument('--outf', default='.', help='folder to output images and model checkpoints')
 parser.add_argument('--manualSeed', type=int, help='manual seed')
+parser.add_argument('--log_name', default='name_me_', help="name of the logs output")
 
 opt = parser.parse_args()
 print(opt)
@@ -198,7 +199,7 @@ for epoch in range(opt.niter):
         s_errD_fake = s_criterion(s_output, s_label)
         c_errD_fake = c_criterion(c_output, c_label)
         errD_fake = s_errD_fake + c_errD_fake
-
+        # d_errD = 0.5 * (torch.mean((d_output_real - 1)**2) + torch.mean(d_output_fake**2))
         errD_fake.backward()
         D_G_z1 = s_output.data.mean()
         errD = s_errD_real + s_errD_fake
@@ -217,19 +218,18 @@ for epoch in range(opt.niter):
         errG.backward()
         D_G_z2 = s_output.data.mean()
         optimizerG.step()
-
-        print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f, Accuracy: %.4f / %.4f = %.4f'
-              % (epoch, opt.niter, i, len(dataloader),
-                 errD.data[0], errG.data[0], D_x, D_G_z1, D_G_z2,
-                 correct, length, 100.* correct / length))
+        if i % 100 ==0:
+            print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f, Accuracy: %.4f / %.4f = %.4f'
+                  % (epoch, opt.niter, i, len(dataloader),
+                     errD.data[0], errG.data[0], D_x, D_G_z1, D_G_z2,
+                     correct, length, 100.* correct / length))
         if i % 100 == 0:
-            vutils.save_image(img,
-                    '%s/real_samples.png' % opt.outf)
+
+            vutils.save_image(img,'%s/%s_real_samples.png' % (opt.outf,opt.log_name))
             #fake = netG(fixed_cat)
             fake = netG(fixed_noise)
             vutils.save_image(fake.data,
-                    '%s/fake_samples_epoch_%03d.png' % (opt.outf, epoch))
-
+                    '%s/%s_fake_samples_epoch_%03d.png' % (opt.outf,opt.log_name, epoch))
     # do checkpointing
     torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (opt.outf, epoch))
     torch.save(netD.state_dict(), '%s/netD_epoch_%d.pth' % (opt.outf, epoch))
